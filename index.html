@@ -90,17 +90,19 @@
   .bar span{position:absolute;top:0;bottom:0;background:var(--accent);border-radius:4px}
   .barlab{display:flex;justify-content:space-between;font-size:.72rem;color:var(--ink-2);margin-top:5px;font-family:var(--mono)}
 
-  .gearbox{display:flex;align-items:center;gap:12px;margin:16px 0 4px}
+  .shifter{display:flex;align-items:center;gap:9px;margin:12px 0}
+  .slabel{flex:0 0 52px;font-size:.78rem;color:var(--ink-2)}
   .gbtn{
-    flex:0 0 76px;height:66px;font-size:1.9rem;line-height:1;
+    flex:0 0 62px;height:58px;font-size:1.7rem;line-height:1;
     background:var(--accent);color:#fff;border:none;border-radius:12px;
     font-family:inherit;cursor:pointer;-webkit-user-select:none;user-select:none;
+    touch-action:manipulation;
   }
   .gbtn:active{filter:brightness(.88)}
-  .gbtn:disabled{opacity:.35}
-  .gnow{flex:1;text-align:center;background:var(--surface-2);border-radius:12px;padding:10px 6px}
-  .gnow span{display:block;font-family:var(--mono);font-size:1.9rem;font-weight:600;line-height:1.1}
-  .gnow small{display:block;color:var(--ink-2);font-size:.76rem;font-family:var(--mono);margin-top:2px}
+  .gbtn:disabled{opacity:.3}
+  .gnow{flex:1;text-align:center;background:var(--surface-2);border-radius:12px;padding:8px 4px}
+  .gnow span{display:block;font-family:var(--mono);font-size:1.5rem;font-weight:600;line-height:1.1}
+  .gnow small{display:block;color:var(--ink-2);font-size:.72rem;font-family:var(--mono);margin-top:1px}
 
   button.act{background:var(--accent);color:#fff;border:none;border-radius:9px;
     padding:11px 16px;font-size:.9rem;font-family:inherit;cursor:pointer;font-weight:500}
@@ -201,10 +203,18 @@
   <div class="err" id="btErr" style="color:var(--ink-2)">Nicht verbunden.</div>
 
   <div id="btPanel" hidden>
-    <div class="gearbox">
-      <button class="gbtn" id="gDown">−</button>
-      <div class="gnow"><span id="gNum">–</span><small id="gDesc"></small></div>
-      <button class="gbtn" id="gUp">+</button>
+    <div class="shifter" id="frontRow">
+      <span class="slabel">Vorne</span>
+      <button class="gbtn sm" id="fDown">−</button>
+      <div class="gnow"><span id="fNum">–</span><small id="fDesc"></small></div>
+      <button class="gbtn sm" id="fUp">+</button>
+    </div>
+
+    <div class="shifter">
+      <span class="slabel">Hinten</span>
+      <button class="gbtn sm" id="rDown">−</button>
+      <div class="gnow"><span id="rNum">–</span><small id="rDesc"></small></div>
+      <button class="gbtn sm" id="rUp">+</button>
     </div>
 
     <div class="row">
@@ -225,6 +235,7 @@
       <div class="stat"><div class="k">Tempo</div><div class="v"><span id="lvS">–</span></div></div>
       <div class="stat"><div class="k">Effektiv</div><div class="v"><span id="lvG">–</span>%</div></div>
     </div>
+    <div class="hint" id="lvRatio" style="text-align:center;margin-top:8px"></div>
   </div>
 </div>
 
@@ -594,7 +605,7 @@ const CP   = "00002ad9-0000-1000-8000-00805f9b34fb";   // Control Point
 const IBD  = "00002ad2-0000-1000-8000-00805f9b34fb";   // Indoor Bike Data
 const FEAT = "00002acc-0000-1000-8000-00805f9b34fb";   // Machine Feature
 
-const bt = { device:null, cp:null, gear:1, power:0, cadence:0, busy:false, pending:null };
+const bt = { device:null, cp:null, ring:0, cog:0, power:0, cadence:0, busy:false, pending:null };
 
 function btSay(msg, warn){
   const e=$("btErr");
@@ -639,37 +650,60 @@ function onBikeData(ev){
   paintLive();
 }
 
-function ladder(){
-  const rings=parseList($("rings").value);
-  const cogs=parseList($("cogs").value).sort((a,b)=>a-b);
-  const tol=parseFloat($("tol").value);
-  let all=[]; rings.forEach(r=>cogs.forEach(c=>all.push({r,c,ratio:r/c})));
-  all.sort((a,b)=>a.ratio-b.ratio);
-  let out=[], last=null;
-  all.forEach(g=>{ if(last===null || (g.ratio-last)/last*100 >= tol){ out.push(g); last=g.ratio; } });
-  return out;
+function drive(){
+  return {
+    rings: parseList($("rings").value),
+    cogs:  parseList($("cogs").value).sort((a,b)=>a-b)
+  };
+}
+
+function clampGears(){
+  const {rings,cogs}=drive();
+  bt.ring=Math.max(0,Math.min(rings.length-1,bt.ring));
+  bt.cog =Math.max(0,Math.min(cogs.length-1, bt.cog));
+}
+
+function currentRatio(){
+  const {rings,cogs}=drive();
+  clampGears();
+  return rings[bt.ring]/cogs[bt.cog];
+}
+
+function refRatio(){
+  const {rings,cogs}=drive();
+  let all=[]; rings.forEach(r=>cogs.forEach(c=>all.push(r/c)));
+  all.sort((a,b)=>a-b);
+  return all[Math.floor((all.length-1)/2)];
 }
 
 function effectiveGrade(){
-  const L=ladder(); if(!L.length) return 0;
-  const ref=L[Math.floor((L.length-1)/2)].ratio;
-  const g=L[Math.min(bt.gear,L.length)-1];
   const base=parseFloat($("grade").value), sens=parseFloat($("sens").value);
-  return Math.max(-10, Math.min(20, base + (g.ratio-ref)*sens));
+  return Math.max(-10, Math.min(20, base + (currentRatio()-refRatio())*sens));
 }
 
 function paintLive(){
-  const L=ladder(); if(!L.length) return;
-  const g=L[Math.min(bt.gear,L.length)-1];
+  const {rings,cogs}=drive();
+  if(!rings.length||!cogs.length) return;
+  clampGears();
+  const ratio=currentRatio();
   const circ=Math.max(500,Math.min(3000,parseInt($("circ").value,10)||2180));
-  $("gNum").textContent=`${bt.gear}/${L.length}`;
-  $("gDesc").textContent=`${g.r}/${g.c} · ${fmt(g.ratio)}`;
+
+  $("frontRow").style.display = rings.length>1 ? "flex" : "none";
+  $("fNum").textContent=rings[bt.ring];
+  $("fDesc").textContent=`Blatt ${bt.ring+1}/${rings.length}`;
+  $("rNum").textContent=cogs[bt.cog];
+  $("rDesc").textContent=`Ritzel ${cogs.length-bt.cog}/${cogs.length}`;
+
+  $("fDown").disabled = bt.ring<=0;
+  $("fUp").disabled   = bt.ring>=rings.length-1;
+  $("rDown").disabled = bt.cog>=cogs.length-1;   // grösseres Ritzel = leichter
+  $("rUp").disabled   = bt.cog<=0;
+
   $("lvW").textContent=bt.power;
   $("lvC").textContent=Math.round(bt.cadence);
-  $("lvS").textContent=fmt(g.ratio*circ*bt.cadence*60/1e6,1);
+  $("lvS").textContent=fmt(ratio*circ*bt.cadence*60/1e6,1);
   $("lvG").textContent=fmt(effectiveGrade(),1);
-  $("gDown").disabled = bt.gear<=1;
-  $("gUp").disabled   = bt.gear>=L.length;
+  $("lvRatio").textContent=`${rings[bt.ring]} / ${cogs[bt.cog]}  ·  Übersetzung ${fmt(ratio)}`;
 }
 
 async function applyGrade(){
@@ -738,7 +772,9 @@ async function btConnect(){
     await cpWrite([0x00],0x00);     // Request Control
     await cpWrite([0x07],0x07);     // Start / Resume
 
-    bt.gear=Math.max(1,Math.floor((ladder().length+1)/2));
+    const {rings,cogs}=drive();
+    bt.ring=0;
+    bt.cog=Math.floor((cogs.length-1)/2);
     $("btPanel").hidden=false; $("btStop").disabled=false;
     btSay("Verbunden mit "+(bt.device.name||"Trainer")+"."+note, !!note);
     await applyGrade();
@@ -754,20 +790,34 @@ async function btDisconnect(){
   btSay("Getrennt, Steigung auf 0.");
 }
 
-const shift = d => { bt.gear=Math.max(1,Math.min(ladder().length,bt.gear+d)); applyGrade(); };
+function shiftFront(d){
+  const {rings}=drive();
+  bt.ring=Math.max(0,Math.min(rings.length-1,bt.ring+d));
+  applyGrade();
+}
+function shiftRear(d){
+  // d = +1 schwerer (kleineres Ritzel), -1 leichter
+  const {cogs}=drive();
+  bt.cog=Math.max(0,Math.min(cogs.length-1,bt.cog-d));
+  applyGrade();
+}
 
 $("btConnect").addEventListener("click",btConnect);
 $("btStop").addEventListener("click",btDisconnect);
-$("gUp").addEventListener("click",()=>shift(+1));
-$("gDown").addEventListener("click",()=>shift(-1));
+$("fUp").addEventListener("click",()=>shiftFront(+1));
+$("fDown").addEventListener("click",()=>shiftFront(-1));
+$("rUp").addEventListener("click",()=>shiftRear(+1));
+$("rDown").addEventListener("click",()=>shiftRear(-1));
 $("grade").addEventListener("input",()=>{$("gradeval").textContent=fmt(parseFloat($("grade").value),1)+" %";});
 $("grade").addEventListener("change",applyGrade);
 $("sens").addEventListener("input",()=>{$("sensval").textContent=fmt(parseFloat($("sens").value),1);});
 $("sens").addEventListener("change",applyGrade);
 document.addEventListener("keydown",e=>{
   if(!bt.cp) return;
-  if(e.key==="+"||e.key==="ArrowUp") shift(+1);
-  if(e.key==="-"||e.key==="ArrowDown") shift(-1);
+  if(e.key==="ArrowUp"||e.key==="+") shiftRear(+1);
+  if(e.key==="ArrowDown"||e.key==="-") shiftRear(-1);
+  if(e.key==="ArrowRight") shiftFront(+1);
+  if(e.key==="ArrowLeft") shiftFront(-1);
 });
 
 if(!navigator.bluetooth)
