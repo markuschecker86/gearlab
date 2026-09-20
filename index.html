@@ -589,10 +589,10 @@ $("copy").addEventListener("click",async e=>{
 
 /* ------------------------------------------------ FTMS über Web Bluetooth */
 
-const FTMS = 0x1826;
-const CP   = 0x2ad9;   // Control Point
-const IBD  = 0x2ad2;   // Indoor Bike Data
-const FEAT = 0x2acc;   // Machine Feature
+const FTMS = "00001826-0000-1000-8000-00805f9b34fb";
+const CP   = "00002ad9-0000-1000-8000-00805f9b34fb";   // Control Point
+const IBD  = "00002ad2-0000-1000-8000-00805f9b34fb";   // Indoor Bike Data
+const FEAT = "00002acc-0000-1000-8000-00805f9b34fb";   // Machine Feature
 
 const bt = { device:null, cp:null, gear:1, power:0, cadence:0, busy:false, pending:null };
 
@@ -676,8 +676,32 @@ async function applyGrade(){
   if(!bt.cp || bt.busy) return;
   bt.busy=true;
   try{ await cpWrite(simPayload(effectiveGrade()),0x11); }
-  catch(e){ btSay("Steigung abgelehnt: "+e.message,true); }
+  catch(e){ btSay("Steigung abgelehnt: "+errText(e),true); }
   finally{ bt.busy=false; paintLive(); }
+}
+
+function errText(e){
+  if(!e) return "unbekannter Fehler";
+  if(typeof e==="string") return e;
+  const parts=[e.name,e.message].filter(Boolean);
+  if(parts.length) return parts.join(": ");
+  try{ return JSON.stringify(e); }catch(_){ return String(e); }
+}
+
+async function pickDevice(){
+  // 1. Versuch: nur Geräte mit FTMS-Dienst zeigen
+  try{
+    return await navigator.bluetooth.requestDevice({
+      filters:[{services:[FTMS]}], optionalServices:[FTMS]
+    });
+  }catch(e){
+    if(e && e.name==="NotFoundError") throw e;   // Abbruch durch Nutzer
+    btSay("Filter abgelehnt, zeige alle Geräte …");
+  }
+  // 2. Versuch: alles anzeigen, Dienst nachträglich anfordern
+  return await navigator.bluetooth.requestDevice({
+    acceptAllDevices:true, optionalServices:[FTMS]
+  });
 }
 
 async function btConnect(){
@@ -687,9 +711,7 @@ async function btConnect(){
   }
   try{
     btSay("Gerät wählen …");
-    bt.device = await navigator.bluetooth.requestDevice({
-      filters:[{services:[FTMS]}], optionalServices:[FTMS]
-    });
+    bt.device = await pickDevice();
     bt.device.addEventListener("gattserverdisconnected",()=>{
       $("btPanel").hidden=true; $("btStop").disabled=true; bt.cp=null;
       btSay("Verbindung getrennt.");
@@ -721,7 +743,7 @@ async function btConnect(){
     btSay("Verbunden mit "+(bt.device.name||"Trainer")+"."+note, !!note);
     await applyGrade();
   }catch(e){
-    btSay("Fehlgeschlagen: "+e.message,true);
+    btSay("Fehlgeschlagen: "+errText(e),true);
   }
 }
 
@@ -749,7 +771,9 @@ document.addEventListener("keydown",e=>{
 });
 
 if(!navigator.bluetooth)
-  btSay("Web Bluetooth nicht verfügbar — am iPhone Bluefy, am Rechner Chrome.");
+  btSay("Web Bluetooth nicht verfügbar — am iPhone Bluefy, am Rechner Chrome.",true);
+else
+  btSay("Web Bluetooth erkannt. Trainer einschalten und Verbinden drücken.");
 
 buildGroupSelect();
 fillOptions($("tiresel"), TIRES.map(([n,c])=>[n,[c]]));
